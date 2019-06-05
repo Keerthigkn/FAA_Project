@@ -1,0 +1,580 @@
+---
+title: "Staistic Modelling - Homework 1"
+author: "Keerthi Gopalakrishnan(M12931398)"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Libraries needed
+
+```{r , warning = FALSE}
+
+library("readxl")
+library("plyr")
+library("gtools")
+library("tidyr")
+library("ggplot2")
+library("purrr")
+library("Hmisc")
+library(kableExtra)
+library(data.table)
+library(MASS)
+
+```
+
+### Step 1 : Importing data from excel files
+
+##### Code:
+
+```{r , warning = FALSE}
+
+FAA1 <- read_excel("/Users/keerthigopalakrishnan/Downloads/FAA1.xls")
+FAA1$aircraft <- factor(FAA1$aircraft)
+FAA2 <- read_excel("/Users/keerthigopalakrishnan/Downloads/FAA2.xls")
+FAA2$aircraft <- factor(FAA2$aircraft)
+
+```
+
+\newline
+
+### Step 2 : Structure of Datasets
+
+##### Code:
+
+```{r , warning = FALSE}
+
+str(FAA1)
+str(FAA2)
+
+```
+
+##### Observations:
+
+1) There are 800 samples and 8 variables in FAA1. There are 150 samples and 7 variables in FAA2.
+2) The two datasets are different:
+* FAA1 contains an extra variable 'duration', which is not present in FAA2
+* Sample size of FAA1 is much bigger
+* FAA1 - 400 airbus and 400 boeing, FAA2 - 50 airbus and 100 boeing. Hence not equal proportions in each set
+
+##### Conclusion:
+
+There are differences in the two datasets.
+
+### Step 3 : Merge
+
+##### Code:
+
+```{r , warning = FALSE}
+
+FAA2$duration <- NA
+FAA_Merged <- merge(FAA1, FAA2, all = T)
+count(duplicated(FAA_Merged$speed_ground))
+FAA_Merged_No_Dups <- FAA_Merged[!duplicated(FAA_Merged$speed_ground),]
+
+```
+
+##### Observations:
+
+1) After merging the two datasets, 100 duplicates were observed in the resulting set. There are 850 unique rows
+2) The duplicate rows are not of any use to the project and can be removed.
+
+##### Conclusion:
+
+There are 100 duplicate rows, they can be removed.
+
+### Step 4 : Summary of Combined & No duplicate data set
+
+##### Code:
+
+```{r , warning = FALSE}
+
+summary(FAA_Merged_No_Dups)
+
+```
+
+##### Observations:
+
+1) Combined Data set - 850 observations and 8 variables.
+
+##### Conclusion:
+
+Summary statistics are as shown above.
+
+### Step 5 : One PPT Summary of Findings
+
+##### Observations:
+
+1) There are totally 950 observations together from FAA1 and FAA2, 850 unique and 100 duplicate, final set contains 850
+2) There are totally 692 missing values, where 50 are from duration and 642 from speed_air
+3) The final combined dataset has 450 airbuses and 400 boeing aircrafts
+4) Abnormal data was observed such as min distance = 34.08, max distance = 6533.05, Min duration = 14.76, min height = -3.546
+
+### Step 6 : Abnormal values
+
+##### Code:
+
+```{r , warning = FALSE}
+  
+  FAA_clean <- subset( FAA_Merged_No_Dups, 
+                                       (FAA_Merged_No_Dups$duration > 40 |
+                                          is.na(FAA_Merged_No_Dups$duration))  &
+                                       (FAA_Merged_No_Dups$speed_ground >= 30 ) &
+                                     (FAA_Merged_No_Dups$speed_ground <= 140) &
+                                       (FAA_Merged_No_Dups$height >= 6) &
+                                       (FAA_Merged_No_Dups$distance < 6000) )
+
+```
+
+##### Observations:
+
+* As per data dictionary there are 19 rows of abnormal values:
+1) Min distance = 34.08 (not feasible), max distance = 6533.05 (which is more than runway length)
+2) Min duration = 14.76 (not feasible)
+3) min height = -3.546 (not feasible)
+4) min speed_ground is less than 30mph & max is greater than 140
+
+##### Conclusion:
+
+There were 19 rows that contained abnormal values and have been removed.
+
+### Step 7 : Data set with no duplicate and no abnormal values
+
+##### Code:
+
+```{r , warning = FALSE}
+  
+summary(FAA_clean)
+
+```
+
+##### Observations:
+
+* There are 831 observations and 8 variables in the new dataset.
+* The summary statistics is as shown above
+
+##### Conclusion:
+
+There are 831 observations and 8 variables in new dataset
+
+### Step 8 : Histogram
+
+##### Code:
+
+```{r, warning = FALSE}
+
+FAA_clean %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+    facet_wrap(~ key, scales = "free") +
+    geom_histogram(bins = 10)
+
+```
+
+##### Observations:
+
+* All the variables follow a distribution approximately normal, except speed_air and distance
+* It can be said that distance & speed_air have right skewed histograms
+* It has been observed that speed_air is missing for values that have speed_ground < 90
+* Probably data containing the left half of the histogram observations have not been provided or was bounded
+
+##### Conclusion:
+
+From the right skewed histogram of distance & speed_air it can be said that values for speed_air is missing when speed_ground < 90 and the lower distance range data observations have not been provided
+
+### Step 9 : PPT with 5 points
+
+##### Observations:
+
+* There are 831 observations and 8 variables in teh final cleaned dataset
+* There are 678 missing values - 50 from duration and 628 from speed_air
+* The distance is right skewed and so the analytics will apply to only this range of observations
+* The speed_air is missing for speed_ground < 90
+* There are 444 airbuses and 387 boeings
+
+### Step 10 : Pairwise correlation
+
+##### Code:
+
+```{r, warning = FALSE}
+
+FAA_clean$model <- ifelse(FAA_clean$aircraft == "airbus", 1, 0)
+
+res2 <- rcorr(as.matrix(FAA_clean[,-1]) ,type = "pearson")
+Corr_data <- res2$r
+
+Variable = colnames(Corr_data[,-7])
+
+c1 <- as.numeric(gsub("([0-9]+)*$", "\\1", Corr_data[7,-7]))
+
+Sign_of_Correlation <- factor(c("negative",'negative','positive','positive','positive','positive','negative'))
+
+table_1 <- data.frame( Variable = Variable,
+           Size_of_Correlation = c1, Sign_of_Correlation = Sign_of_Correlation )
+
+table_1 <- table_1[order(abs(table_1$Size_of_Correlation) ,  decreasing = TRUE),]
+
+table_1
+
+```
+
+
+##### Observations:
+
+* Distance has greatest correlation with speed_air, speed_ground
+* Distance has relevant negative correlation with model type as well
+* Distance has less correlation with the rest
+
+##### Conclusion:
+
+Distance has positive greatest correlation with speed_air, speed_ground of 0.94 and 0.86 respectively, and negative correlation with model of -0.23
+
+### Step 11 : Pairwise correlation
+
+##### Code:
+
+```{r, warning = FALSE}
+
+plot(FAA_clean$distance,FAA_clean$speed_air)
+plot(FAA_clean$distance,FAA_clean$speed_ground)
+ggplot(FAA_clean, aes(x = 1:831, y = distance, color = model)) + 
+    geom_point(position = position_dodge(width = 0.4))
+plot(FAA_clean$distance,FAA_clean$height)
+plot(FAA_clean$distance,FAA_clean$pitch)
+plot(FAA_clean$distance,FAA_clean$duration)
+plot(FAA_clean$distance,FAA_clean$no_pasg)
+
+
+```
+
+
+##### Observations:
+
+* Yes the correlation plots do align with the size of correlation factors shown above.
+* speed in air and ground show a positive upward line of samples.
+* the slight negativity can also be observed in duration and no_pasg
+
+##### Conclusion:
+
+Yes the plots align with the strength shown above.
+
+### Step 12 : Airplane model
+
+
+##### Conclusion:
+
+Yes added the model make in 10 and 11
+
+### Step 13 : Regressing Y/Distance
+
+##### Code:
+
+```{r, warning = FALSE}
+
+m1 <- lm(distance ~ speed_air , data = FAA_clean)
+m2 <- lm(distance ~ speed_ground , data = FAA_clean)
+m3 <- lm(distance ~ duration , data = FAA_clean)
+m4 <- lm(distance ~ pitch , data = FAA_clean)
+m5 <- lm(distance ~ height , data = FAA_clean)
+m6 <- lm(distance ~ model , data = FAA_clean)
+m7 <- lm(distance ~ no_pasg , data = FAA_clean)
+
+
+Variable = c("speed_air","speed_ground","duration","pitch","height","model","no_pasg")
+
+c1 <- c(summary(m1)$coefficients[2,"Pr(>|t|)"] , summary(m2)$coefficients[2,"Pr(>|t|)"],
+       summary(m3)$coefficients[2,"Pr(>|t|)"], summary(m4)$coefficients[2,"Pr(>|t|)"],
+       summary(m5)$coefficients[2,"Pr(>|t|)"], summary(m6)$coefficients[2,"Pr(>|t|)"],
+       summary(m7)$coefficients[2,"Pr(>|t|)"])
+
+Sign_of_Coeff <- factor(c("positive",'positive','negative','positive','positive','negative','negative'))
+
+table_2 <- data.frame( Variable = Variable,
+           Size_of_P_value = c1, Sign_of_Coeff = Sign_of_Coeff )
+
+table_2 <- table_2[order(abs(table_2$Size_of_P_value) ,  decreasing = FALSE),]
+
+table_2
+
+```
+
+
+##### Observations:
+
+* speed_ground, speed_air have insignificant p-values in comparison to 0.05, hence showing that they play a very relevant role in predicting distance.
+* Model type, that is, airbus or boeing also has a relevance.
+* The remaining parameters have questionable relevance, and may or may not make a big difference to the model
+
+
+##### Conclusion:
+
+speed in air and ground has found to be the most relevant variables in regressing
+
+### Step 14 : Standardization
+
+##### Code:
+
+```{r, warning = FALSE}
+
+# standardizing data
+Faa_demo <- scale(FAA_clean[,-1])
+
+m1 <- lm(distance ~ speed_air , data = as.data.frame(Faa_demo))
+m2 <- lm(distance ~ speed_ground , data = as.data.frame(Faa_demo))
+m3 <- lm(distance ~ duration , data = as.data.frame(Faa_demo))
+m4 <- lm(distance ~ pitch , data = as.data.frame(Faa_demo))
+m5 <- lm(distance ~ height , data = as.data.frame(Faa_demo))
+m6 <- lm(distance ~ model , data = as.data.frame(Faa_demo))
+m7 <- lm(distance ~ no_pasg , data = as.data.frame(Faa_demo))
+
+Variable = c("speed_air","speed_ground","duration","pitch","height","model","no_pasg")
+
+c1 <- c(summary(m1)$coefficients[2,"Pr(>|t|)"] , summary(m2)$coefficients[2,"Pr(>|t|)"],
+       summary(m3)$coefficients[2,"Pr(>|t|)"], summary(m4)$coefficients[2,"Pr(>|t|)"],
+       summary(m5)$coefficients[2,"Pr(>|t|)"], summary(m6)$coefficients[2,"Pr(>|t|)"],
+       summary(m7)$coefficients[2,"Pr(>|t|)"])
+
+Sign_of_Coeff <- factor(c("positive",'positive','negative','positive','positive','negative','negative'))
+
+table_3 <- data.frame( Variable = Variable,
+           Size_of_P_value = c1, Sign_of_Coeff = Sign_of_Coeff )
+
+table_3 <- table_3[order(abs(table_3$Size_of_P_value) ,  decreasing = FALSE),]
+
+table_3
+
+```
+
+
+##### Observations:
+
+* After standardization,on doing a summary of the new standardized data it can be seen that the output is of a similar format.
+* Though the regression results will be the same, standardizing the data will help match the data better.
+
+
+##### Conclusion:
+
+After standardization data is of a similar/consistent format as opposed to the original data set.
+
+### Step 15 : Comparison of Tables
+
+##### Code:
+
+```{r, warning = FALSE}
+
+Correlation_Value = table_1[-1,2]
+Correlation_Sign = table_1[-1,3]
+Regression_Value = table_2[-2,2]
+Regression_Sign = table_2[-2,3]
+Standardization_Regression_Value = table_3[-2,2]
+Standardization_Regression_Sign = table_3[-2,3]
+
+Variable = table_1[-1,1]
+
+table_0 <- data.frame( Variable = Variable,
+           Correlation_Value = Correlation_Value, Correlation_Sign = Correlation_Sign,
+           Regression_Value = Regression_Value, Regression_Sign = Regression_Sign,
+           Standardization_Regression_Value = Standardization_Regression_Value,
+           Standardization_Regression_Sign = Standardization_Regression_Sign)
+
+table_0
+
+```
+
+
+##### Observations:
+
+* The three tables are consistent with each other.
+* That is: The correlation table shows speed_air and speed_ground as most important, and so does the regression table. This is mainatined even after standardization.
+* From the table, following the same order or relevance, and removing correlated elements, following is the most important variables in order : 
+1) speed_ground
+2) model
+3) height
+4) pitch
+5) duration
+6) no_pasg
+
+
+##### Conclusion:
+
+The three tables are consistent with each other, showing the same trend of variable relevance. Speed_air has been removed due to high correlation and low number of samples.
+
+### Step 16 : Collinearity
+
+##### Code:
+
+```{r, warning = FALSE}
+
+m1 <- lm( distance ~ speed_ground , FAA_clean)
+m2 <- lm( distance ~ speed_air , FAA_clean)
+m3 <- lm( distance ~ speed_ground + speed_air , FAA_clean)
+
+coef(m1)
+coef(m2)
+coef(m3)
+
+```
+
+
+##### Observations:
+
+1) Model 1 has a coefficent of 41.44 for speed_ground
+2) Model 2 has a coefficent of 79.53 for speed_air
+3) Model 3 has a coefficent of -14 for speed_ground and 93.96 for speed_air in speed_ground+speed_air
+4) From these obervations, we can say that multicollinearity exists.
+5) Speed_air and speed_ground are highly correlated with each other = 0.99 positive correlation, and hence any change in any one causes change in distance and on the second predictor variable. Hence a sign change in speed_ground is seen.
+6) Speed_ground must be kept in model selection as we are predicting landing overrun, and speed_air has 600+ null values. Speed_ground and air are highly correlated and have more valuable samples which will result in a better prediction.
+
+
+##### Conclusion:
+
+Multicollinearity is observed because of high correlation between air_ground and air_speed. Hence speed_ground is retained in the model as that has a great positive influence on landing distance being overrun and more valuable samples.
+
+### Step 17 : R-squared
+
+##### Code:
+
+```{r, warning = FALSE}
+
+m1 <- lm( distance ~ speed_ground , data = as.data.frame(Faa_demo))
+m2 <- lm( distance ~ speed_ground + model , data = as.data.frame(Faa_demo))
+m3 <- lm( distance ~ speed_ground + model + height , data = as.data.frame(Faa_demo))
+m4 <- lm( distance ~ speed_ground + model + height + pitch , data = as.data.frame(Faa_demo))
+m5 <- lm( distance ~ speed_ground + model + height + pitch + duration , data = as.data.frame(Faa_demo))
+m6 <- lm( distance ~ speed_ground + model + height + pitch + duration + no_pasg, data = as.data.frame(Faa_demo))
+
+s1 <- summary(m1)
+s2 <- summary(m2)
+s3 <- summary(m3)
+s4 <- summary(m4)
+s5 <- summary(m5)
+s6 <- summary(m6)
+
+
+r_squared <- c( s1$r.squared , s2$r.squared , s3$r.squared, s4$r.squared, s5$r.squared,
+                s6$r.squared)
+
+p <- c (1 , 2, 3, 4, 5, 6)
+
+plot(p,r_squared)
+
+
+```
+
+
+##### Observations:
+
+1) From the plot it is clearly seen that model six has highest r-squared value of 0.8506
+2) r-squared value always increases with number of parameters, and hence most of the times is not completely reliable for choosing model
+
+##### Conclusion:
+
+The sixth model is the better one out of the 6.
+
+### Step 18 : Adjusted R-squared
+
+##### Code:
+
+```{r, warning = FALSE}
+
+adjsuted_r <- c( s1$adj.r.squared , s2$adj.r.squared, s3$adj.r.squared, s4$adj.r.squared,
+                s5$adj.r.squared, s6$adj.r.squared)
+
+p <- c(1 , 2, 3, 4, 5, 6)
+
+plot(p,adjsuted_r)
+
+
+```
+
+
+##### Observations:
+
+1) Adjusted r-squared compensates for the added parameters. And hence provides a more reliable value.
+2) From the plot it is clearly seen that model 5 has highest adjusted r-squared value of 0.849
+
+##### Conclusion:
+
+The 5 model is the better one out of the 6.
+
+### Step 19 : AIC
+
+##### Code:
+
+```{r, warning = FALSE}
+
+AIC_val <- c( AIC(m1) , AIC(m2), AIC(m3) , AIC(m4), AIC(m5) , AIC(m6) )
+
+p <- c(1 , 2, 3, 4, 5, 6)
+
+plot(p,AIC_val)
+
+
+```
+
+
+##### Observations:
+
+1) AIC provides parameter compensation and keeps a check on overfitting.
+2) The model with least AIC value is model 5
+
+##### Conclusion:
+
+Model 5 is better than the other 6 models
+
+### Step 20 : Comparing Variable selection methods
+
+##### Code:
+
+```{r, warning = FALSE}
+
+table_r <- data.frame( Model_Num = p , R_squared = r_squared )
+table_adj_r <- data.frame( Model_Num = p , Adjusted_R_squared = adjsuted_r )
+table_aic <- data.frame( Model_Num = p , AIV_Val = AIC_val )
+
+table_r <- table_r[order(abs(table_r$R_squared) ,  decreasing = TRUE),]
+table_adj_r <- table_adj_r[order(abs(table_adj_r$Adjusted_R_squared) ,  decreasing = TRUE),]
+table_aic <- table_aic[order(abs(table_aic$AIV_Val) ,  decreasing = FALSE),]
+
+table_r
+table_adj_r
+table_aic
+
+```
+
+
+##### Observations:
+
+1) The higher the adjusted-R and R-squared values the better is the model, and the lower is the AIC the better is the model.
+2) From above results Adjusted-rsquared,a nd AIC indicate that model 5 is the best model, r-squared has it as second best which is good enough. Adjusted-r square is more relaible than r-squared.
+3) Model 5 contains speed_ground, model, height, 
+
+##### Conclusion:
+
+Model 5 with speed_ground, model, height, pitch, duration is the best model in predicting landing overrun
+
+### Step 21 : Variable selection based on automated algorithm
+
+##### Code:
+
+```{r, warning = FALSE}
+
+fit1 <- lm(distance ~ ., data = as.data.frame(Faa_demo[,-4]) )
+fit2 <- lm(distance ~ 1, data = as.data.frame(Faa_demo[,-4]) )
+stepAIC(fit2,direction="forward",scope=list(upper=fit1,lower=fit2))
+
+```
+
+##### Observations:
+
+1) The stepAIC function has recommended model 3 to be the better model out of all the available combinations, as opposed to the model 5 suggestion using the other AIC method
+2) It shows the least AIC value of -1563 for model 3 out of all models, where as step 19 showed an AIC value for model 3 in the 4th position
+3) The sign difference is because of some additive value seen in the automatic algorithm. However this does not add significance to the model prediction.
+4) The suggested coefficients are shown above. This important feature is not present in AIC function.
+
+##### Conclusion:
+The two AIC methods suggested different number of parameters needed for prediction. Automated AIC definitely penalizes for more parameters in a more efficient manner as compared to the first AIC method. StepAIC also suggests the coefficients for these params.Making it a more convenient option to use. However, due to missing values speed_air had to be deleted from the data set in order to use stepAIC. stepAIC does not work well when many values are missing in a set.
+

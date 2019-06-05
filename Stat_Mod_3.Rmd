@@ -1,0 +1,124 @@
+---
+title: "Statistic Modelling - Homework 3"
+author: "Keerthi Gopalakrishnan(M12931398)"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Question - 1
+
+##### Code:
+
+```{r, warning = FALSE}
+
+# preparing data
+
+FAA_clean$y <- ifelse(FAA_clean$distance < 1000, 1, ifelse((FAA_clean$distance >= 1000) & (FAA_clean$distance < 2500), 2, 3))
+
+FAA_clean_mul <- FAA_clean[,-8]
+FAA_clean_mul$y <- as.factor(FAA_clean_mul$y)
+
+# Distribution of y
+
+attach(FAA_clean_mul)
+pct<-round(table(y)/length(y)*100,1)
+labs<-c("Less than 1000: ","Between 1000 and 2500: ","Greater than 2500: ")
+labs<-paste(labs,pct)
+labs<-paste(labs,"%",sep="" )
+pie(table(y),labels=labs,col=rainbow(length(labs)),
+    ain="Pie chart of Coronary Heart Disease")
+
+# plot line graph
+
+#speed ground
+spee<-group_by(FAA_clean_mul, speed_ground, y) %>%
+summarise(count=n()) %>% group_by(speed_ground) %>%
+mutate(stotal=sum(count), proportion=count/stotal)
+
+ggplot(spee, aes(x=speed_ground, y=proportion,
+group=y, color=y  , linetype = y)) + geom_line() + geom_jitter()
+
+#aircraft
+mod<-group_by(FAA_clean_mul, aircraft, y) %>%
+summarise(count=n()) %>% group_by(aircraft) %>%
+mutate(atotal=sum(count), proportion=count/atotal)
+
+ggplot(mod, aes(x=aircraft, y=proportion,
+group=y, color=y  , linetype = y)) + geom_line()
+
+#height
+height<-group_by(FAA_clean_mul, height, y) %>%
+summarise(count=n()) %>% group_by(height) %>%
+mutate(htotal=sum(count), proportion=count/htotal)
+
+ggplot(height, aes(x=height, y=proportion,
+group=y, color=y  , linetype = y)) + geom_line() + geom_jitter()
+
+#pitch
+pitch<-group_by(FAA_clean_mul, pitch, y) %>%
+summarise(count=n()) %>% group_by(pitch) %>%
+mutate(ptotal=sum(count), proportion=count/ptotal)
+
+ggplot(pitch, aes(x=pitch, y=proportion,
+group=y, color=y  , linetype = y)) + geom_line()
+
+
+# multinomial  model
+
+data_new <- na.omit(FAA_clean_mul[,-5])
+mmod <- multinom(y ~ .,data_new)
+summary(mmod)
+
+# model selection based on aic
+mmodi<-step(mmod)
+summary(mmodi)
+z <- summary(mmodi)$coefficients/summary(mmodi)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1))*2
+
+
+# model comparison
+deviance(mmodi)-deviance(mmod)
+mmod$edf-mmodi$edf
+pchisq(deviance(mmodi)-deviance(mmod),mmod$edf-mmodi$edf,lower=F)
+
+# prediction
+predict(mmodi,data.frame(speed_ground = 1300 , height = 3.89 , aircraft = "airbus" , pitch = 4.3))
+predict(mmodi,data.frame(speed_ground = 1300 , height = 3.89 , aircraft = "airbus" , pitch = 4.3),type="probs")
+
+# fitted curve speed
+inclevels1<-0:133
+preds <- data.frame(speed_ground=inclevels1, predict(mmodi,data.frame(speed_ground=inclevels1, height = 15, pitch = 4.5, aircraft = "airbus"),type="probs"))
+lpred<-gather(preds,y,probability,-speed_ground)
+ggplot(lpred,aes(x=speed_ground,y=probability,group=y,linetype=y , color = y))+geom_line()
+
+inclevels1<-0:60
+preds <- data.frame(height=inclevels1, predict(mmodi,data.frame(speed_ground=105, height = inclevels1, pitch = 4.5, aircraft = "boeing"),type="probs"))
+lpred<-gather(preds,y,probability,-height)
+ggplot(lpred,aes(x=height,y=probability,group=y,linetype=y , color = y))+geom_line()
+
+inclevels1<-0:60
+preds <- data.frame(height=inclevels1, predict(mmodi,data.frame(speed_ground=105, height = inclevels1, pitch = 4.5, aircraft = "airbus"),type="probs"))
+lpred<-gather(preds,y,probability,-height)
+ggplot(lpred,aes(x=height,y=probability,group=y,linetype=y , color = y))+geom_line()
+
+# prediction table
+xtabs(~predict(mmodi)+data_new$y)
+
+
+```
+
+### Question - 2
+
+##### Code:
+
+```{r, warning = FALSE}
+
+modp <- glm(no_pasg ~ ., family=poisson, na.omit(FAA_clean[,c(-5,-9)]))
+summary(modp)
+step(modp)
+drop1(modp,test="Chisq")
+
+```

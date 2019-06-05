@@ -1,0 +1,811 @@
+---
+title: "Statistic Modelling - Homework 2"
+author: "Keerthi Gopalakrishnan(M12931398)"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Libraries needed
+
+```{r , warning = FALSE}
+
+library("readxl")
+library("plyr")
+library("gtools")
+library("tidyr")
+library("ggplot2")
+library("purrr")
+library("Hmisc")
+library(kableExtra)
+library(data.table)
+library(MASS)
+library(ggplot2)
+library(lattice)
+library(corrplot)
+library(pastecs)
+library(PerformanceAnalytics)
+library(GGally)
+library(ROCR)
+library(verification)
+library(class)
+library(glmnet)
+library(boot)
+library(rpart)
+library(rpart.plot)
+
+```
+
+### Step 0 : Importing data
+
+```{r, warning=FALSE}
+
+FAA1 <- read_excel("/Users/keerthigopalakrishnan/Downloads/FAA1.xls")
+FAA1$aircraft <- factor(FAA1$aircraft)
+FAA2 <- read_excel("/Users/keerthigopalakrishnan/Downloads/FAA2.xls")
+FAA2$aircraft <- factor(FAA2$aircraft)
+
+FAA2$duration <- NA
+FAA_Merged <- merge(FAA1, FAA2, all = T)
+FAA_Merged_No_Dups <- FAA_Merged[!duplicated(FAA_Merged$speed_ground),]
+
+  FAA_clean <- subset( FAA_Merged_No_Dups, 
+                                       (FAA_Merged_No_Dups$duration > 40 |
+                                          is.na(FAA_Merged_No_Dups$duration))  &
+                                       (FAA_Merged_No_Dups$speed_ground >= 30 ) &
+                                     (FAA_Merged_No_Dups$speed_ground <= 140) &
+                                       (FAA_Merged_No_Dups$height >= 6) &
+                                       (FAA_Merged_No_Dups$distance < 6000) )
+  
+  FAA_clean$model <- ifelse(FAA_clean$aircraft == "airbus", 1, 0)
+
+```
+
+### Step 1 : Creating Binary Variables
+
+```{r, warning=FALSE}
+
+FAA_clean_Bin <- FAA_clean
+
+FAA_clean_Bin$long.landing  <- ifelse(FAA_clean_Bin$distance>2500, 1, 0)
+FAA_clean_Bin$risky.landing  <- ifelse(FAA_clean_Bin$distance>3000, 1, 0)
+
+FAA_clean_Bin <- FAA_clean_Bin[,-8]
+
+dim(FAA_clean_Bin)
+
+```
+
+##### Observations:
+
+* The final binary cleaned data has 831 observations and 10 variables as shown in the output above
+
+##### Conclusion:
+
+* The FAA clean dataset has been prepared, binary variables long.landing and risky.landing have been added and variable distance has been removed.
+
+### Step 2 : Pie chart of Long.landing
+
+```{r, warning=FALSE}
+
+attach(FAA_clean_Bin)
+pct<-round(table(long.landing)/length(long.landing)*100,1)
+labs<-c("No","Yes")
+labs<-paste(labs,pct)
+labs<-paste(labs,"%",sep="" )
+pie(table(long.landing),labels=labs,col=rainbow(length(labs)),
+ain="Pie chart of Coronary Heart Disease")
+
+```
+
+##### Observations:
+
+* Long landing cases are 103 in number, i.e. have value 1 and a % of 12.4. There are 728 0 values for this variable.
+
+##### Conclusion:
+
+* The data set consists of 103 long landing cases having a total % of 12.4.
+
+### Step 3 : Single factor regression analysis
+
+```{r, warning=FALSE}
+
+# Iinitial analysis
+
+m1 <- glm(long.landing ~ speed_air , family = binomial, data = FAA_clean_Bin)
+m2 <- glm(long.landing ~ speed_ground , family = binomial,data = FAA_clean_Bin)
+m3 <- glm(long.landing ~ duration , family = binomial,data = FAA_clean_Bin)
+m4 <- glm(long.landing ~ pitch , family = binomial,data = FAA_clean_Bin)
+m5 <- glm(long.landing ~ height , family = binomial,data = FAA_clean_Bin)
+m6 <- glm(long.landing ~ model , family = binomial,data = FAA_clean_Bin)
+m7 <- glm(long.landing ~ no_pasg , family = binomial,data = FAA_clean_Bin)
+
+
+Variable = c("speed_air","speed_ground","duration","pitch","height","model","no_pasg")
+
+c1 <- c(summary(m1)$coefficients[2,"Pr(>|z|)"] , summary(m2)$coefficients[2,"Pr(>|z|)"],
+       summary(m3)$coefficients[2,"Pr(>|z|)"], summary(m4)$coefficients[2,"Pr(>|z|)"],
+       summary(m5)$coefficients[2,"Pr(>|z|)"], summary(m6)$coefficients[2,"Pr(>|z|)"],
+       summary(m7)$coefficients[2,"Pr(>|z|)"])
+
+c2 <- c(as.matrix(exp(coef(m1)))[2,] , as.matrix(exp(coef(m2)))[2,],
+       as.matrix(exp(coef(m3)))[2,], as.matrix(exp(coef(m4)))[2,],
+       as.matrix(exp(coef(m5)))[2,], as.matrix(exp(coef(m6)))[2,],
+       as.matrix(exp(coef(m7)))[2,])
+
+c3 <- c(summary(m1)$coefficients[2,"Estimate"] , summary(m2)$coefficients[2,"Estimate"],
+       summary(m3)$coefficients[2,"Estimate"], summary(m4)$coefficients[2,"Estimate"],
+       summary(m5)$coefficients[2,"Estimate"], summary(m6)$coefficients[2,"Estimate"],
+       summary(m7)$coefficients[2,"Estimate"])
+
+Sign_of_Coeff <- factor(c("positive",'positive','negative','positive','positive','negative','negative'))
+
+table_1 <- data.frame( Variable = Variable, Size_of_Reg_Coeff = c3,
+                       Odds_Ratio = c2, Sign_of_Coeff = Sign_of_Coeff , P_Val = c1)
+
+table_1 <- table_1[order(abs(table_1$P_Val) ,  decreasing = FALSE),]
+
+
+# standardization
+
+FAA_clean_Bin_St <- as.data.frame(scale(FAA_clean_Bin[,c(-1,-9,-10)]))
+FAA_clean_Bin_St$long.landing <- as.matrix(FAA_clean_Bin$long.landing)
+FAA_clean_Bin_St$risky.landing <- as.matrix(FAA_clean_Bin$risky.landing)
+FAA_clean_Bin_St$aircraft <- as.matrix(FAA_clean_Bin$aircraft)
+
+
+m1 <- glm(long.landing ~ speed_air , family = binomial, data = as.data.frame(FAA_clean_Bin_St))
+m2 <- glm(long.landing ~ speed_ground , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m3 <- glm(long.landing ~ duration , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m4 <- glm(long.landing ~ pitch , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m5 <- glm(long.landing ~ height , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m6 <- glm(long.landing ~ model , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m7 <- glm(long.landing ~ no_pasg , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+
+
+Variable = c("speed_air","speed_ground","duration","pitch","height","model","no_pasg")
+
+c1 <- c(summary(m1)$coefficients[2,"Pr(>|z|)"] , summary(m2)$coefficients[2,"Pr(>|z|)"],
+       summary(m3)$coefficients[2,"Pr(>|z|)"], summary(m4)$coefficients[2,"Pr(>|z|)"],
+       summary(m5)$coefficients[2,"Pr(>|z|)"], summary(m6)$coefficients[2,"Pr(>|z|)"],
+       summary(m7)$coefficients[2,"Pr(>|z|)"])
+
+c2 <- c(as.matrix(exp(coef(m1)))[2,] , as.matrix(exp(coef(m2)))[2,],
+       as.matrix(exp(coef(m3)))[2,], as.matrix(exp(coef(m4)))[2,],
+       as.matrix(exp(coef(m5)))[2,], as.matrix(exp(coef(m6)))[2,],
+       as.matrix(exp(coef(m7)))[2,])
+
+c3 <- c(summary(m1)$coefficients[2,"Estimate"] , summary(m2)$coefficients[2,"Estimate"],
+       summary(m3)$coefficients[2,"Estimate"], summary(m4)$coefficients[2,"Estimate"],
+       summary(m5)$coefficients[2,"Estimate"], summary(m6)$coefficients[2,"Estimate"],
+       summary(m7)$coefficients[2,"Estimate"])
+
+Sign_of_Coeff <- factor(c("positive",'positive','negative','positive','positive','negative','negative'))
+
+table_2 <- data.frame( Variable = Variable, Size_of_Reg_Coeff = c3,
+                       Odds_Ratio = c2, Sign_of_Coeff = Sign_of_Coeff , P_Val = c1)
+
+table_2 <- table_2[order(abs(table_2$P_Val) ,  decreasing = FALSE),]
+
+#before standardization
+
+table_1
+
+#after standardization
+
+table_2
+
+
+```
+
+##### Observations:
+
+* The order of variable importance for both tables are consistent with each other.
+* After standardization, on observing the new standardized data table it can be seen that the output is of a similar format.
+* Though the regression results will be the same, standardizing the data will help match the data better.
+* Further, the important variables have been shown in order of greater to lower importance from top to bottom.
+* The Odds ratio and regression coefficients have drastically changed after standardization
+* Order of importance - Speed_ground , speed_air, model, pitch, height, no_pasg, duration.
+* Speed_air will not be considered as it has a lot of NAs and a similar prediction can be got from speed_ground instead
+
+##### Conclusion:
+
+* Order of important variables - Speed_ground , speed_air, model, pitch, height, no_pasg, duration. Speed_air will not be included.
+
+### Step 4 : Visualize Association with Long.landing
+
+```{r, warning=FALSE}
+
+# speed ground
+
+plot(FAA_clean_Bin$long.landing ~ FAA_clean_Bin$speed_ground)
+
+plot(jitter(long.landing,0.1)~jitter(speed_ground),FAA_clean_Bin,xlab="speed_ground",ylab="long.landing",pch=".")
+
+ggplot(FAA_clean_Bin,aes(x=speed_ground,fill=as.factor(long.landing)))+geom_histogram(position="dodge",binwidth=10)
+
+# model
+
+plot(jitter(long.landing,0.1)~jitter(model),FAA_clean_Bin,xlab="model",ylab="long.landing",pch=".")
+
+ggplot(FAA_clean_Bin,aes(x=model,fill=as.factor(long.landing)))+geom_histogram(position="dodge",binwidth=1)
+
+# pitch
+
+plot(FAA_clean_Bin$long.landing ~ FAA_clean_Bin$pitch)
+
+plot(jitter(long.landing,0.1)~jitter(pitch),FAA_clean_Bin,xlab="pitch",ylab="long.landing",pch=".")
+
+ggplot(FAA_clean_Bin,aes(x=pitch,fill=as.factor(long.landing)))+geom_histogram(position="dodge",binwidth=1)
+
+# height
+
+plot(FAA_clean_Bin$long.landing ~ FAA_clean_Bin$height)
+
+plot(jitter(long.landing,0.1)~jitter(height),FAA_clean_Bin,xlab="height",ylab="long.landing",pch=".")
+
+ggplot(FAA_clean_Bin,aes(x=height,fill=as.factor(long.landing)))+geom_histogram(position="dodge",binwidth=1)
+```
+
+##### Observations:
+
+* For high speed_ground, long.landing distance has been observed. They are positively correlated. It seems to be present for speed_ground >= 100
+* From the jitter plot, it can be observed that long.landing is correlated with model type, it is more boeing (model = 0).
+* Higher long.landing has been observed when pitch is around 4-5. The association is not very clear. It is not clear for height as well.
+
+##### Conclusion:
+
+* Speed_air, model have visible association with long.landing
+
+### Step 5 : Full Model
+
+```{r, warning=FALSE}
+
+Model_full <- glm(long.landing ~ speed_ground + model + pitch + height + no_pasg + duration , family = binomial, data = as.data.frame(FAA_clean_Bin_St))
+
+summary(Model_full)
+
+```
+
+##### Observations:
+
+* On fitting the model, it was observed that Speed_ground, model, height  seem of high significance. This is based on 95% confidence.
+
+##### Conclusion:
+
+* Speed_ground, model, height are significant parameters.
+
+### Step 6 : AIC Forward selection
+
+```{r, warning=FALSE}
+
+null.glm <- glm(long.landing ~ 1, family = binomial, data = as.data.frame(FAA_clean_Bin_St))
+
+Model_AIC_fwd <- step(null.glm, scope=list(lower=null.glm, upper=Model_full), direction="forward")
+
+```
+
+##### Observations:
+
+* Using forward methods based on AIC, the following model has the lowest AIC value.
+long.landing ~ speed_ground + model + height + pitch
+* The results obtained from AIC suggest the top 4 variables seen in table in step 3. Hence it is consistent in terms of important variable selection.
+* speed_air has not been considered.
+
+##### Conclusion:
+
+* With an AIC value of 63.2 this methods has chosen speed_ground + model + height + pitch for modeling.
+
+### Step 7 : BIC Forward selection
+
+```{r, warning=FALSE}
+
+Model_fwd_BIC <- step(null.glm, scope=list(lower=null.glm, upper=Model_full), direction="forward", k=log(nrow(FAA_clean_Bin_St)))
+
+long_model <- Model_fwd_BIC
+
+```
+
+##### Observations:
+
+* Using forward methods based on BIC, the following model has the lowest BIC value.
+long.landing ~ speed_ground + model + height
+* The results obtained from BIC forward method has one main difference with AIC. AIC adds pitch, and BIC does not include pitch in its analysis. This is because BIC is a model selection method that also penalizes for high number of parameters. Apart from pitch, the two models are consistent.
+
+
+##### Conclusion:
+
+* Since BIC provides a simpler model, with similar deviance, the BIC can be considered as a better model.
+
+### Step 8 : LONG LANDING Summary
+
+**Model Chosen:** long.landing ~ (17.36)speed_ground + (-2.51)model + (2.2)height -19
+
+**Table:**
+
+**Graphs:**
+
+```{r, warning=FALSE}
+
+# speed_ground
+
+ggplot(FAA_clean_Bin,aes(x=speed_ground,fill=as.factor(long.landing)))+geom_histogram(position="dodge",binwidth=10)
+
+# model
+
+ggplot(FAA_clean_Bin,aes(x=model,fill=as.factor(long.landing)))+geom_histogram(position="dodge",binwidth=1)
+
+# height
+
+ggplot(FAA_clean_Bin,aes(x=height,fill=as.factor(long.landing)))+geom_histogram(position="dodge",binwidth=10)
+
+```
+
+* There are 103 Long landing cases out of 831 observations, i.e. 12.4% of the total data.
+* Uisng the most optimal analytical model - BIC Forward Selection, speed_ground, model, and height are the most important variables. These are used for prediction.
+* As the speed_ground increases there is greater chance of long landing; If the model is boeing there is greater chance of long landing; and as the height is near its mean value the long landing is higher.
+
+### Step 9 : RISKY LANDING step 1-7
+
+```{r, warning=FALSE, message= FALSE}
+
+# pie chart of risky landing
+
+attach(FAA_clean_Bin)
+pct<-round(table(risky.landing)/length(risky.landing)*100,1)
+labs<-c("No","Yes")
+labs<-paste(labs,pct)
+labs<-paste(labs,"%",sep="" )
+pie(table(risky.landing),labels=labs,col=rainbow(length(labs)),
+ain="Pie chart of Coronary Heart Disease")
+
+```
+
+
+```{r, warning=FALSE}
+# Iinitial analysis
+
+m1 <- glm(risky.landing ~ speed_air , family = binomial, data = FAA_clean_Bin)
+m2 <- glm(risky.landing ~ speed_ground , family = binomial,data = FAA_clean_Bin)
+m3 <- glm(risky.landing ~ duration , family = binomial,data = FAA_clean_Bin)
+m4 <- glm(risky.landing ~ pitch , family = binomial,data = FAA_clean_Bin)
+m5 <- glm(risky.landing ~ height , family = binomial,data = FAA_clean_Bin)
+m6 <- glm(risky.landing ~ model , family = binomial,data = FAA_clean_Bin)
+m7 <- glm(risky.landing ~ no_pasg , family = binomial,data = FAA_clean_Bin)
+
+
+Variable = c("speed_air","speed_ground","duration","pitch","height","model","no_pasg")
+
+c1 <- c(summary(m1)$coefficients[2,"Pr(>|z|)"] , summary(m2)$coefficients[2,"Pr(>|z|)"],
+       summary(m3)$coefficients[2,"Pr(>|z|)"], summary(m4)$coefficients[2,"Pr(>|z|)"],
+       summary(m5)$coefficients[2,"Pr(>|z|)"], summary(m6)$coefficients[2,"Pr(>|z|)"],
+       summary(m7)$coefficients[2,"Pr(>|z|)"])
+
+c2 <- c(as.matrix(exp(coef(m1)))[2,] , as.matrix(exp(coef(m2)))[2,],
+       as.matrix(exp(coef(m3)))[2,], as.matrix(exp(coef(m4)))[2,],
+       as.matrix(exp(coef(m5)))[2,], as.matrix(exp(coef(m6)))[2,],
+       as.matrix(exp(coef(m7)))[2,])
+
+c3 <- c(summary(m1)$coefficients[2,"Estimate"] , summary(m2)$coefficients[2,"Estimate"],
+       summary(m3)$coefficients[2,"Estimate"], summary(m4)$coefficients[2,"Estimate"],
+       summary(m5)$coefficients[2,"Estimate"], summary(m6)$coefficients[2,"Estimate"],
+       summary(m7)$coefficients[2,"Estimate"])
+
+Sign_of_Coeff <- factor(c("positive",'positive','negative','positive','positive','negative','negative'))
+
+table_1 <- data.frame( Variable = Variable, Size_of_Reg_Coeff = c3,
+                       Odds_Ratio = c2, Sign_of_Coeff = Sign_of_Coeff , P_Val = c1)
+
+table_1 <- table_1[order(abs(table_1$P_Val) ,  decreasing = FALSE),]
+```
+
+
+```{r, warning=FALSE}
+# standardization
+
+FAA_clean_Bin_St <- as.data.frame(scale(FAA_clean_Bin[,c(-1,-9,-10)]))
+FAA_clean_Bin_St$long.landing <- as.matrix(FAA_clean_Bin$long.landing)
+FAA_clean_Bin_St$risky.landing <- as.matrix(FAA_clean_Bin$risky.landing)
+
+
+m1 <- glm(risky.landing ~ speed_air , family = binomial, data = as.data.frame(FAA_clean_Bin_St))
+m2 <- glm(risky.landing ~ speed_ground , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m3 <- glm(risky.landing ~ duration , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m4 <- glm(risky.landing ~ pitch , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m5 <- glm(risky.landing ~ height , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m6 <- glm(risky.landing ~ model , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+m7 <- glm(risky.landing ~ no_pasg , family = binomial,data = as.data.frame(FAA_clean_Bin_St))
+
+
+Variable = c("speed_air","speed_ground","duration","pitch","height","model","no_pasg")
+
+c1 <- c(summary(m1)$coefficients[2,"Pr(>|z|)"] , summary(m2)$coefficients[2,"Pr(>|z|)"],
+       summary(m3)$coefficients[2,"Pr(>|z|)"], summary(m4)$coefficients[2,"Pr(>|z|)"],
+       summary(m5)$coefficients[2,"Pr(>|z|)"], summary(m6)$coefficients[2,"Pr(>|z|)"],
+       summary(m7)$coefficients[2,"Pr(>|z|)"])
+
+c2 <- c(as.matrix(exp(coef(m1)))[2,] , as.matrix(exp(coef(m2)))[2,],
+       as.matrix(exp(coef(m3)))[2,], as.matrix(exp(coef(m4)))[2,],
+       as.matrix(exp(coef(m5)))[2,], as.matrix(exp(coef(m6)))[2,],
+       as.matrix(exp(coef(m7)))[2,])
+
+c3 <- c(summary(m1)$coefficients[2,"Estimate"] , summary(m2)$coefficients[2,"Estimate"],
+       summary(m3)$coefficients[2,"Estimate"], summary(m4)$coefficients[2,"Estimate"],
+       summary(m5)$coefficients[2,"Estimate"], summary(m6)$coefficients[2,"Estimate"],
+       summary(m7)$coefficients[2,"Estimate"])
+
+Sign_of_Coeff <- factor(c("positive",'positive','negative','positive','positive','negative','negative'))
+
+table_2 <- data.frame( Variable = Variable, Size_of_Reg_Coeff = c3,
+                       Odds_Ratio = c2, Sign_of_Coeff = Sign_of_Coeff , P_Val = c1)
+
+table_2 <- table_2[order(abs(table_2$P_Val) ,  decreasing = FALSE),]
+
+#before standardization
+
+table_1
+
+#after standardization
+
+table_2
+```
+
+```{r, warning=FALSE}
+
+# speed ground
+
+plot(FAA_clean_Bin$risky.landing ~ FAA_clean_Bin$speed_ground)
+
+plot(jitter(risky.landing,0.1)~jitter(speed_ground),FAA_clean_Bin,xlab="speed_ground",ylab="risky.landing",pch=".")
+
+ggplot(FAA_clean_Bin,aes(x=speed_ground,fill=as.factor(risky.landing)))+geom_histogram(position="dodge",binwidth=10)
+
+# model
+
+plot(jitter(risky.landing,0.1)~jitter(model),FAA_clean_Bin,xlab="model",ylab="risky.landing",pch=".")
+
+ggplot(FAA_clean_Bin,aes(x=model,fill=as.factor(risky.landing)))+geom_histogram(position="dodge",binwidth=1)
+
+# pitch
+
+plot(FAA_clean_Bin$risky.landing ~ FAA_clean_Bin$pitch)
+
+plot(jitter(risky.landing,0.1)~jitter(pitch),FAA_clean_Bin,xlab="pitch",ylab="risky.landing",pch=".")
+
+ggplot(FAA_clean_Bin,aes(x=pitch,fill=as.factor(risky.landing)))+geom_histogram(position="dodge",binwidth=1)
+
+
+
+```
+
+```{r, warning=FALSE}
+# modeling
+
+Model_full <- glm(risky.landing ~ speed_ground + model + pitch + height + no_pasg + duration , family = binomial, data = as.data.frame(FAA_clean_Bin_St))
+null.glm <- glm(risky.landing ~ 1, family = binomial, data = as.data.frame(FAA_clean_Bin_St))
+
+# AIC
+
+Model_AIC_fwd <- step(null.glm, scope=list(lower=null.glm, upper=Model_full), direction="forward")
+
+# BIC
+
+Model_fwd_BIC <- step(null.glm, scope=list(lower=null.glm, upper=Model_full), direction="forward", k=log(nrow(FAA_clean_Bin_St)))
+
+risky_model <- Model_fwd_BIC
+
+
+```
+
+
+##### Observations:
+
+* 7.3% of total data is Risky Landing
+* Regressing Risky Landing with each parameter individually - speed_ground, model are shown as important
+* The results before and after standardization are consistent (data is in a similar format after standardization)
+* For very high values of speed_ground (125 approx) risky landing is observed. There is more risky landing for boeing that airbus. The association with pitch is not very clear, but seems to be high around pitch mean.
+* Between full model, AIC, and BIC, again BIC forward selection was found to be the better model selection method, keeping complexity in mind and BIC AIC values. The AIC model suggested speed_ground + model + no_pasg. The BIC model suggested speed_ground + model. AIC is similar for both models, Residual deviance is slightly high for BIC, but similar to AIC. Model complexity has been given preference.
+
+##### Conclusion:
+
+* Since BIC provides a simpler model, with similar deviance, the BIC can be considered as a better model.
+Model - risky.landing ~ speed_ground + model
+
+### Step 10 : RISKY LANDING Summary
+
+**Model Chosen:**  ~ risky.landing ~ (17.354)speed_ground + (-2.006)model - 26.527
+
+**Table:**
+
+**Graphs:**
+
+```{r, warning=FALSE}
+
+# speed_ground
+
+ggplot(FAA_clean_Bin,aes(x=speed_ground,fill=as.factor(risky.landing)))+geom_histogram(position="dodge",binwidth=10)
+
+# model
+
+ggplot(FAA_clean_Bin,aes(x=model,fill=as.factor(risky.landing)))+geom_histogram(position="dodge",binwidth=1)
+
+```
+
+* Long Landing has more data to predict from (12.4%), hence better prediction in comparison to Risky Landing (7.3%)
+* Uisng the most optimal analytical model - BIC Forward Selection for both models; Speed_ground, model and height is used to predict Long landing. But only speed_ground and model is used for risky landing.
+* 
+
+
+### Step 11 : Difference Between Two Models
+
+
+* Using forward methods based on BIC, the following model has the lowest BIC value.
+long.landing ~ speed_ground + model + height
+* The results obtained from BIC forward method has one main difference with AIC. AIC adds pitch, and BIC does not include pitch in its analysis. This is because BIC is a model selection method that also penalizes for high number of parameters. Apart from pitch, the two models are consistent.
+* Risky Landing - BIC = 60.26449 , Residual Deviance = 40.097; Long Landing - BIC = 83.9372, Residual Deviance = 57.047
+
+### Step 12 : ROC
+
+```{r, warning=FALSE}
+
+# long landing
+
+model.final <- glm(long.landing~speed_ground+model+height,family=binomial,as.data.frame(FAA_clean_Bin_St))
+linpred<-predict(model.final)
+predprob<-predict(model.final,type="response") 
+predout1<-ifelse(predprob<0.5,"no","yes") 
+mod1 <- data.frame(as.data.frame(FAA_clean_Bin_St),predprob,predout1)
+
+
+thresh<-seq(0.01,0.5,0.01)
+sensitivity1<-specificity1<-rep(NA,length(thresh))
+for(j in seq(along=thresh)){
+pp<-ifelse(mod1$predprob<thresh[j],"no","yes")
+xx<-xtabs(~long.landing+pp,mod1)
+specificity1[j]<-xx[1,1]/(xx[1,1]+xx[1,2])
+sensitivity1[j]<-xx[2,2]/(xx[2,1]+xx[2,2])
+}
+
+# risky landing
+
+model.final <- glm(risky.landing~speed_ground+model,family=binomial,as.data.frame(FAA_clean_Bin_St))
+linpred<-predict(model.final)
+predprob<-predict(model.final,type="response") 
+predout<-ifelse(predprob<0.5,"no","yes") 
+mod <- data.frame(as.data.frame(FAA_clean_Bin_St),predprob,predout)
+
+
+thresh<-seq(0.01,0.5,0.01)
+sensitivity<-specificity<-rep(NA,length(thresh))
+for(j in seq(along=thresh)){
+pp<-ifelse(mod$predprob<thresh[j],"no","yes")
+xx<-xtabs(~risky.landing+pp,mod)
+specificity[j]<-xx[1,1]/(xx[1,1]+xx[1,2])
+sensitivity[j]<-xx[2,2]/(xx[2,1]+xx[2,2])
+}
+
+xtabs(~long.landing+predout1,mod1)
+xtabs(~risky.landing+predout,mod)
+
+plot(1-specificity1,sensitivity1,type="l", col = "red")
+lines(1-specificity,sensitivity,col = "black")
+
+pred1 <- predict(long_model, type = "response")
+pred_ROC <- prediction(pred1, FAA_clean_Bin_St$long.landing)
+perf0 <- performance(pred_ROC, "tpr", "fpr")
+ 
+
+pred1 <- predict(risky_model, type = "response")
+pred_ROC <- prediction(pred1, FAA_clean_Bin_St$risky.landing)
+perf1 <- performance(pred_ROC, "tpr", "fpr")
+
+plot(perf0, col = "black")
+abline( perf1 , colours(distinct = FALSE))
+
+
+
+```
+
+##### Observations:
+
+* Long landing covers larger range of values under its curve and hence has a greater Area under the Curve in comparison to Risky Landing
+
+
+##### Conclusion:
+
+* AUC is higher for Long Landing than Risky Landing
+
+
+### Step 13 : Probability check
+
+```{r, warning=FALSE}
+
+new.ind <- data.frame(model = 0, duration = 200, no_pasg=80, speed_ground=115, speed_air=120, height=40, pitch=4)
+
+# long landing
+
+prob <- predict(long_model,newdata=new.ind,type="link",se=T)
+
+upper_limit<-prob$fit+(1.96*prob$se.fit)
+
+lower_limit<-prob$fit - (1.96*prob$se.fit)
+
+prob
+upper_limit
+lower_limit
+
+# risky landing
+
+prob <- predict(risky_model,newdata=new.ind,type="link",se=T)
+
+upper_limit<-prob$fit+(1.96*prob$se.fit)
+
+lower_limit<-prob$fit - (1.96*prob$se.fit)
+
+prob
+upper_limit
+lower_limit
+
+```
+
+
+
+##### Observations:
+
+* The prediction for that observation is that it is a long landing and a risky landing. The upper and lower limits for both are shown. Which indicates that, within that value range, it is a long landing and risky landing.
+
+
+##### Conclusion:
+
+* The observation is long and risky landing
+
+### Step 14 : Prob and Hazard model
+
+```{r, warning=FALSE}
+
+Model_full <- glm(risky.landing ~ speed_ground + model + pitch + height + no_pasg + duration , family = binomial(link = "logit"), data = as.data.frame(FAA_clean_Bin_St))
+null.glm <- glm(risky.landing ~ 1, family = binomial(link = "logit"), data = as.data.frame(FAA_clean_Bin_St))
+model_logit <- step(null.glm, scope=list(lower=null.glm, upper=Model_full), direction="forward", k=log(nrow(FAA_clean_Bin_St)))
+
+Model_full <- glm(risky.landing ~ speed_ground + model + pitch + height + no_pasg + duration , family = binomial(link = "probit"), data = as.data.frame(FAA_clean_Bin_St))
+null.glm <- glm(risky.landing ~ 1, family = binomial(link = "probit"), data = as.data.frame(FAA_clean_Bin_St))
+model_probit <- step(null.glm, scope=list(lower=null.glm, upper=Model_full), direction="forward", k=log(nrow(FAA_clean_Bin_St)))
+
+Model_full <- glm(risky.landing ~ speed_ground + model + pitch + height + no_pasg + duration , family = binomial(link = "cloglog"), data = as.data.frame(FAA_clean_Bin_St))
+null.glm <- glm(risky.landing ~ 1, family = binomial(link = "cloglog"), data = as.data.frame(FAA_clean_Bin_St))
+model_hazard <- step(null.glm, scope=list(lower=null.glm, upper=Model_full), direction="forward", k=log(nrow(FAA_clean_Bin_St)))
+
+summary(model_logit)$coefficient
+summary(model_probit)$coefficient
+summary(model_hazard)$coefficient
+
+predval<-sapply(list(model_logit,model_probit,model_hazard),fitted)
+colnames(predval)<-c("logit","probit","cloglog")
+round(predval[fitted(model_logit)>0.3 & fitted(model_logit) <0.5,],3)
+
+
+```
+
+##### Observations:
+
+* The coefficient of model with link logit is twice as much as that of probit and cloglog.
+* The logit and probit has higher prediction value than cloglog.
+
+##### Conclusion:
+
+* Logit has highest coef value
+
+### Step 15 : ROC
+
+```{r, warning=FALSE}
+
+pred1 <- predict(model_logit, type = "response")
+pred_ROC <- prediction(pred1, FAA_clean_Bin_St$risky.landing)
+perf1 <- performance(pred_ROC, "tpr", "fpr")
+
+
+pred2 <- predict(model_probit, type = "response")
+pred_ROC <- prediction(pred2, FAA_clean_Bin_St$risky.landing)
+perf2 <- performance(pred_ROC, "tpr", "fpr")
+
+
+pred3 <- predict(model_hazard, type = "response")
+pred_ROC <- prediction(pred3, FAA_clean_Bin_St$risky.landing)
+perf3 <- performance(pred_ROC, "tpr", "fpr")
+
+plot(perf1, colorize=TRUE)
+plot(perf2, colorize=TRUE)
+plot(perf3, colorize=TRUE)
+
+
+```
+
+##### Observations:
+
+* The ROC curve is highest for probit with greatest AUC value.
+
+##### Conclusion:
+
+* ROC is greatest for probit
+
+### Step 16 : TOP 5 Risky landings
+
+```{r, warning=FALSE}
+
+pred_logit <- predict(model_logit,newdata=FAA_clean_Bin_St,type="response")
+tail(sort(pred_logit),5)
+
+pred_probit <- predict(model_probit,newdata=FAA_clean_Bin_St,type="response")
+tail(sort(pred_probit),5)
+
+pred_clog <- predict(model_hazard,newdata=FAA_clean_Bin_St,type="response")
+tail(sort(pred_clog),5)
+
+```
+
+##### Observations:
+
+* Logit and Probit have very similar predictions with all same indexes.
+* Cloglog has different indexes.
+
+##### Conclusion:
+
+* logit and probit predicted similar aircrafts, cloglog predicted a different set
+
+### Step 17 : TOP 5 Risky landings
+
+```{r, warning=FALSE}
+new.ind <- data.frame(model = 0, duration = 200, no_pasg=80, speed_ground=115, speed_air=120, height=40, pitch=4)
+
+# logit
+
+prob <- predict(model_logit,newdata=new.ind,type="link",se=T)
+
+upper_limit<-prob$fit+(1.96*prob$se.fit)
+
+lower_limit<-prob$fit - (1.96*prob$se.fit)
+
+prob
+upper_limit
+lower_limit
+
+# probit
+
+prob <- predict(model_probit,newdata=new.ind,type="link",se=T)
+
+upper_limit<-prob$fit+(1.96*prob$se.fit)
+
+lower_limit<-prob$fit - (1.96*prob$se.fit)
+
+prob
+upper_limit
+lower_limit
+
+# logit
+
+prob <- predict(model_hazard,newdata=new.ind,type="link",se=T)
+
+upper_limit<-prob$fit+(1.96*prob$se.fit)
+
+lower_limit<-prob$fit - (1.96*prob$se.fit)
+
+prob
+upper_limit
+lower_limit
+
+
+```
+
+##### Observations:
+
+* All three models gave a prediction of 1. The se is so small for all models that the upper and lower limit is similar and almost equal to 1
+* The CI for logit is wider than that of probit and cloglog
+
+##### Conclusion:
+
+* logit has wider CI than probit and cloglog, however all predicted the data as 1, that is, it is a risky landing
+
+
+
